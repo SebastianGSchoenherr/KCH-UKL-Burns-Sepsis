@@ -1,0 +1,1027 @@
+---
+title: "Burns Sepsis"
+author: "Sebastian"
+date: "2025-07-15"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r README}
+
+# KCH UKL Burns Sepsis study
+```
+
+## KCH UKL Burns Sepsis 
+
+```{r, echo=FALSE}
+# Loading packages
+library(readxl)
+library(writexl)
+library(gtsummary)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(tidyverse)
+library(broom)
+library(forestplot)
+library(purrr)
+```
+
+```{r data}
+# loading data frames
+
+#Clinical data
+Burns_Sepsis <- read_excel("~/UKL/Malawi ABS Projekt/R Malawi AMS/Burns_Sepsis_09.26.xlsx")
+
+#clinical data raw
+CRF1_5_9.26 <- read_excel("~/UKL/Malawi ABS Projekt/R Malawi AMS/CRF1_5_09.26_deidentified.xlsx")
+
+#Microbiology data
+Microbiology <- read_excel("~/UKL/Malawi ABS Projekt/R Malawi AMS/Microbiology_09.26.xlsx")
+```
+
+### Variable Exploration
+
+```{r}
+hist(Burns_Sepsis$age_years)
+```
+
+```{r}
+ggplot(data = Burns_Sepsis, aes(x = time_to_admission)) +
+  geom_histogram(bins = 30)
+```
+
+```{r}
+Burns_Sepsis %>%
+  ggplot()+
+  geom_histogram(mapping = aes(x = duration_of_stay), bins = 20)
+```
+
+```{r}
+hist(Burns_Sepsis$TBSA_mean)
+```
+
+Numerical variables are skewed to the right and not normally distributed. Assumption for e.g. t-test, linear regression not met. Mean not a good summary.
+
+### Variable transformation
+
+```{r, echo=FALSE}
+
+# age2 variable with 2 categories 
+# [3y because it creates the most evenly sized groups]
+Burns_Sepsis <- Burns_Sepsis %>% 
+  mutate(age2 = as.factor(case_when(
+    age_years <= 3 ~ "<=3",
+    age_years >3 ~ ">3",
+    TRUE ~ NA_character_
+  )))
+
+# reference: age >3
+Burns_Sepsis$age2 <- relevel(Burns_Sepsis$age2, ref = ">3")
+
+# residence 
+# setting reference level
+Burns_Sepsis$residence <- relevel(factor(Burns_Sepsis$residence), ref =
+                                    "outside_Lilongwe")
+
+# Underweight status 
+# [no sig. difference between underweight and severe underweight --> combined]
+Burns_Sepsis <- Burns_Sepsis %>% 
+  mutate(underweight_combined = as.factor(case_when(
+    underweight_status %in% c("Severely_underweight", "Underweight") ~ "Underweight",
+    underweight_status == "Not_underweight" ~ "Not_underweight",
+    TRUE ~ NA_character_
+  )))
+
+# setting reference level
+Burns_Sepsis$underweight_combined <- relevel(Burns_Sepsis$underweight_combined, ref = "Not_underweight")
+
+# TBSA2 categories
+Burns_Sepsis <- Burns_Sepsis %>% 
+  mutate(TBSA2 = as.factor(case_when(
+    TBSA_mean <= 15 ~ "<=15",
+    TBSA_mean >15 ~ ">15",
+    TRUE ~ NA_character_
+  )))
+
+# setting reference level
+Burns_Sepsis$TBSA2 <- relevel(Burns_Sepsis$TBSA2, ref = "<=15")
+
+# Type 3
+Burns_Sepsis <- Burns_Sepsis %>% 
+  mutate(type3 = as.factor(case_when(
+    type %in% c("Electric", "Other") ~ "Other",
+    type %in% c("Scald_water", "Scald_other") ~ "Scald",
+    type == "Flame" ~ "Flame",
+    TRUE ~ NA_character_
+  )))
+
+# setting reference level
+Burns_Sepsis$type3 <- relevel(Burns_Sepsis$type3, ref = "Scald")
+
+# Degree
+Burns_Sepsis <- Burns_Sepsis %>% 
+  mutate(degree = as.factor(case_when(
+    degree_highest == 1 ~ "1",
+    degree_highest %in% c(2,3) ~ "2a-b",
+    degree_highest %in% c(4,5) ~ "3-4",
+    TRUE ~ NA_character_
+  )))
+# reference level
+Burns_Sepsis$degree <- relevel(Burns_Sepsis$degree, ref = "1")
+
+# time to admission
+Burns_Sepsis <- Burns_Sepsis %>% 
+  mutate(Time_to_admission = as.factor(case_when(
+    time_to_admission <= 1 ~ "1d",
+    time_to_admission >1 ~ ">1d",
+    TRUE ~ NA_character_
+  )))
+# reference level
+Burns_Sepsis$Time_to_admission <- relevel(Burns_Sepsis$Time_to_admission, 
+                                            ref = "1d")
+
+# Topical variable
+Burns_Sepsis <- Burns_Sepsis %>% 
+  mutate(Topical_combined = as.factor(case_when(
+    Topical_Any == 1 & Topical_Eggs == 0 & Topical_Herbs == 0 & Topical_Flour == 0 ~ "Other",
+    Topical_Herbs == 1 ~ "Herbs",
+    Topical_Eggs == 1 ~ "Eggs",
+    Topical_Flour == 1 ~ "Flour",
+    Topical_Any == 0 ~ "None",
+    TRUE ~ NA_character_
+    )))
+#reference level
+Burns_Sepsis$Topical_combined <- relevel(Burns_Sepsis$Topical_combined, ref = "None")
+
+# Burns_Sepsis %>%
+#   select(Topical_combined) %>%
+#   tbl_summary()
+
+#Topical2 (any vs. none)
+Burns_Sepsis <- Burns_Sepsis %>% 
+  mutate(Topical2 = as.factor(case_when(
+    Topical_Any == 1 ~ "Any",
+    Topical_Any == 0 ~ "None",
+    TRUE ~ NA_character_
+    )))
+
+#reference level
+Burns_Sepsis$Topical2 <- relevel(Burns_Sepsis$Topical2, ref = "None")
+
+# duration3
+Burns_Sepsis <- Burns_Sepsis %>% 
+  mutate(duration3 = as.factor(case_when(
+    duration_of_stay <= 7 ~ "<=7",
+    duration_of_stay > 7 & duration_of_stay <= 14 ~ ">7-14",
+    duration_of_stay > 14 ~ ">14",
+    TRUE ~ NA_character_
+  )))
+# reference duration
+Burns_Sepsis$duration3 <- relevel(Burns_Sepsis$duration3, ref = "<=7")
+
+
+#Factorizing & labelling other variables
+Burns_Sepsis <- Burns_Sepsis %>% 
+  mutate(
+    age = age_years,
+    sex = factor(crf1_sex, labels = c("female", "male")),
+    underweight_status = factor(underweight_status),
+    bmi_age = factor(bmi_age),
+    residence = factor(crf1_residence.x, labels = c("outside_Lilongwe",
+                                                       "Lilongwe")),
+    inhalation_injury = factor(crf1_inhalation_injury, labels = c("no", "yes")),
+    Topical_Eggs = factor(Topical_Eggs),
+    Topical_Flour = factor(Topical_Flour),
+    Topical_Herbs = factor(Topical_Herbs),
+    Cleaning_Water = factor(Cleaning_Water),
+    Pseudomonas = factor(Pseudomonas),
+    MDR = factor(MDR),
+    bedsheets = factor(crf1_bedsheets, labels = c("not provided", "provided")),
+    Escharotomy = factor(Surg_Escharotomy),
+    Debridement = factor(Surg_Debridement),
+    Split_skin_graft = factor(Surg_Split_skin_graft),
+    urban_vs_rural = factor(urban_vs_rural)
+  )
+
+#reference level - Bedsheets 
+Burns_Sepsis$bedsheets <- relevel(factor(Burns_Sepsis$bedsheets), ref = "provided")
+```
+
+### Descriptive findings
+
+#### Participants
+
+```{r}
+# Potentially eligible:
+  # 210 paediatric patients admitted to the unit during the observation period
+
+# Screened: 105
+
+# Included
+Burns_Sepsis %>% 
+  filter(!is.na(study_id)) %>% 
+  n_distinct()
+
+# Completed follow up
+Burns_Sepsis %>% 
+  filter(!is.na(crf5_assessment_date)) %>% 
+  count()
+
+# Sufficient data for sepsis endpoint 
+Burns_Sepsis %>% 
+  filter(!is.na(crf5_sepsis_corr)) %>% 
+  count()
+```
+
+-   210 eligible patients were admitted during study the period
+-   105 patients were screened
+-   104 patients were included in the study
+-   103 patients completed follow up
+-   93 patients with sufficient vital sign data to assess sepsis endpoint
+
+#### Baseline characteristics
+
+```{r baseline_Table_1}
+# Patient characterstics (Table 1)
+
+Burns_Sepsis %>%
+  select(age, sex, underweight_status, bmi_age, TBSA_mean, degree_highest, type,
+         inhalation_injury, crf1_surgical) %>% 
+  tbl_summary()
+```
+
+#### Previous facility
+
+```{r referral_tableS1}
+
+Burns_Sepsis %>%   
+  select(starts_with("Facility_")) %>%    
+  tbl_summary()
+```
+
+```{r Comorbidities}
+
+sum(CRF1_5_9.26$crf1_comorb, na.rm = TRUE) #9
+sum(CRF1_5_9.26$crf1_comorb_list___1, na.rm = TRUE) #Epilepy 5
+sum(CRF1_5_9.26$crf1_comorb_list___2, na.rm = TRUE) #Psych.disorder 0
+sum(CRF1_5_9.26$crf1_comorb_list___3, na.rm = TRUE) #HIV 0
+sum(CRF1_5_9.26$crf1_comorb_list___4, na.rm = TRUE) #DM T1 0
+sum(CRF1_5_9.26$crf1_comorb_list___5, na.rm = TRUE) #Malnutrition 2
+sum(CRF1_5_9.26$crf1_comorb_list___6, na.rm = TRUE) #Other 3 --> Malaria, Cerebral Palsy, Asthma
+```
+
+#### Topical applications & wound cleaning
+
+```{r topical_cleaning}
+Burns_Sepsis %>%
+  select(starts_with("Topical_"), Cleaning_Water) %>% 
+  tbl_summary()
+```
+
+Other = “local medicine”, “traditional meds”, “brick powder”, “soda”, “lotion”, “black stuff”; and "unknown substances".
+
+### **AMS rounds**
+
+```{r AMS_round_desriptive}
+#Nr. of AMS rounds: 35
+CRF1_5_9.26 %>%
+  filter(!is.na(crf4_assessment_date)) %>% 
+  select(crf4_assessment_date) %>% 
+  n_distinct()
+
+#Nr. of cases discussions: 109
+CRF1_5_9.26 %>%
+  filter(!is.na(crf4_assessment_date)) %>%
+  select(crf4_assessment_date) %>% 
+  nrow()
+
+#Nr. of individual patients discussed: 57
+CRF1_5_9.26 %>%
+  filter(!is.na(crf4_entry_date)) %>%
+  distinct(record_id) %>%
+  n_distinct()
+```
+
+35 AMS ward rounds were conducted in which 109 case discussions were held including 57 patients.
+
+### Antibiotic therapies
+
+```{r Abx_therapy}
+# patients with antimicrobial therapy at time of AMS round: 59
+CRF1_5_9.26 %>%
+  filter(crf4_antimicrobial == 1) %>%
+  nrow()
+
+# In percent of cases discussed
+59/109  #54%
+
+# Patients without antimicrobial therapy at time of AMS round: 50
+CRF1_5_9.26 %>%
+  filter(crf4_antimicrobial == 0) %>%
+  nrow()
+
+# Antimicrobial therapies observed during AMS rounds
+CRF1_5_9.26 %>%
+  select(record_id, crf4_entry_date, crf4_antimicrobial_substance1, 
+         crf4_antimicrobial_substance2, crf4_antimicrobial_substance3) %>%
+  filter(!is.na(crf4_antimicrobial_substance1)) %>%
+  rowwise() %>%
+  mutate(substances = list(sort(na.omit(c(crf4_antimicrobial_substance1, 
+                                          crf4_antimicrobial_substance2, 
+                                          crf4_antimicrobial_substance3))))) %>%
+  ungroup() %>%
+  group_by(substances) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  arrange(desc(count)) %>%
+  view()
+```
+
+At the time of review, 54% (59/109) of cases were on antimicrobials, most frequently ceftriaxone (65%; 31/48).
+
+**AMS recommendations**
+
+```{r AMS_recommendations}
+
+#Descriptive Table
+CRF1_5_9.26 %>%
+  select(starts_with("AMS_", ignore.case = TRUE)) %>% 
+  tbl_summary()
+
+#Any? corrected  n = 109
+CRF1_5_9.26 %>% 
+  count(AMS_Any_new)
+57/109     #52%
+
+#Other recommendation
+CRF1_5_9.26 %>% 
+  select(crf4_ams_intervention_list_oth) %>% 
+  tbl_summary()
+
+#Nr. of follow up discussions: 53
+CRF1_5_9.26 %>% 
+  filter(!is.na(crf4_ams)) %>% 
+  count(crf4_ams)  #included in previous AMS round
+
+#Implementation of AMS recommendations?
+CRF1_5_9.26 %>% count(crf4_ams_impl)
+#yes: 37; partial: 3
+
+37/53 #70%
+```
+
+The AMS team issued recommendations in 52% (57/109) of cases, with microbiological testing being the most common recommendation (40%; 23/57). In 70% (37/53) of follow-up discussions, the previous AMS recommendations had been implemented.
+
+#### Clinical outcomes
+
+```{r duration}
+# Duration of stay 
+Burns_Sepsis %>%
+  select(duration_of_stay) %>%
+  tbl_summary()
+```
+
+median length of stay: 9 days (IQR 5-17)
+
+```{r clinical_outcomes}
+# Clinical outcomes
+Burns_Sepsis %>%
+  select(wound_infection_any, crf5_sepsis_corr, Death_corr) %>% 
+  tbl_summary() %>% 
+  add_ci()
+```
+
+Wound infection: 58 (56%, 95% CI: 46% to 65%) \
+Sepsis: 35 (38%, 95% CI: 28% to 48%)\
+Death: 22 (21%, 95% CI: 14% to 31%)
+
+#### Microbiological results
+
+```{r Nr_swabs}
+#Nr. of Blood cultures and wound swabs: 44
+Microbiology %>% 
+  count(`Specimen Type`)
+
+#Nr. of individual patients with wound swabs: 30
+Microbiology %>% 
+  filter(`Specimen Type` == "Wound Swab") %>%
+  distinct(study_id) %>% 
+  n_distinct()
+
+#Nr. of wound swabs with growth: 39
+Microbiology %>% 
+  count(Woundswab_growth)
+
+#Nr. of patients with wound swabs growth: 27
+Microbiology %>% 
+  filter(Woundswab_growth == 1) %>% 
+  distinct(study_id) %>% 
+  n_distinct()
+```
+
+44 deep wound swabs were taken from 30 study participants of which 39 (89%) revealed bacterial growth.
+
+```{r Nr_blood_cultures}
+
+#Nr. of Blood cultures and wound swabs: 13
+Microbiology %>% 
+  count(`Specimen Type`)
+
+#Nr. of individual patients with blood cultures: 10
+Microbiology %>% 
+  filter(`Specimen Type` == "Blood") %>% 
+  distinct(study_id) %>% 
+  n_distinct()
+
+#Nr. with blood culture growth: 4
+Microbiology %>% 
+  count(Bloodculture_growth)
+
+#Nr. of patients with blood culture growth: 4
+Microbiology %>% 
+  filter(Bloodculture_growth == 1) %>% 
+  distinct(study_id) %>% 
+  n_distinct()
+
+#Nr. organisms identified in blood cultures
+Microbiology %>% 
+  filter(Bloodculture_growth == 1) %>%
+  count(Organism)
+```
+
+A total of 13 blood culture pairs were taken from 10 study participants, of which 4 showed bacterial growth: two had a bacteraemia with *S. aureus*, one with *A. baumannii* and one with *Klebsiella pneumoniae*.
+
+```{r Organisms_total}
+
+Microbiology %>% 
+  select(Organism) %>% 
+  filter(Organism != "No growth") %>% 
+  tbl_summary()
+
+#gram negative: 32
+4+4+1+4+1+18
+
+#gram positive: 11
+10+1
+
+#gram negative percent: 74%
+32/43
+```
+
+```{r Organisms_wound_swabs}
+
+Microbiology %>% 
+  filter(Woundswab_growth == 1) %>% 
+  select(Organism) %>% 
+  tbl_summary()
+
+#gram negative: 30
+3+4+1+3+1+18
+
+#gram positive: 9
+8+1
+
+#gram negative percent: 77%
+30/39
+```
+
+The majority of identified pathogens were Gram-negative bacteria (30, 77%). The most frequently isolated Gram-negative pathogen was *P. aeruginosa* (18, 46%), followed by *Escherichia* (*E*.) *coli* and *Klebsiella* spp. each with 4 isolates and *A.* *baumannii* with three isolates.
+
+Among Gram-positive pathogens, *S. aureus* was identified most frequently (8, 20%), while streptococci were detected only once. Coagulase-negative staphylococci and enterococci were not identified in any wound swabs.
+
+```{r AST_carbapenem_resistance}
+
+# Pseudomonas Carbapenem resistance
+Microbiology %>% 
+  filter(Organism == "Pseudomonas aeruginosa") %>% 
+  select(Meropenam) %>% 
+  tbl_summary()
+  
+# Acinetobacter Carbapenem resistance
+Microbiology %>% 
+  filter(Organism == "Acinetobacter baumanni") %>% 
+  select(Meropenam) %>% 
+  tbl_summary()
+```
+
+*P. aeruginosa* and *A. baumannii* were resistant to carbapenems in 22% (4/18) and 50% (2/4) of cases, respectively.
+
+```{r MDR}
+
+#MDR Acinetobacter (4/4)
+Microbiology %>% 
+  filter(Organism == "Acinetobacter baumanni") %>% 
+  select(MDR) %>% 
+  tbl_summary()
+
+#MDR Klebsiella spp. (3/5)
+Microbiology %>% 
+  filter(grepl("Klebsiella", Organism, ignore.case = TRUE)) %>% 
+  select(MDR) %>% 
+  tbl_summary()
+
+#MDR Klebsiella pneumoniae (3/4)
+Microbiology %>% 
+  filter(Organism == "Klebsiella pneumoniae") %>% 
+  select(MDR) %>% 
+  tbl_summary()
+
+#MDR Pseudomonas (3/13)
+Microbiology %>% 
+  filter(Organism == "Pseudomonas aeruginosa") %>% 
+  select(MDR) %>% 
+  tbl_summary()
+
+#MDR all (16/38)
+Microbiology %>% 
+  select(MDR) %>% 
+  tbl_summary()
+```
+
+MDR phenotypes were found in all (4/4) *A. baumannii* isolates, 75% (of *Klebsiella* spp. and 23% (3/13) of *Pseudomonas* isolates.
+
+Among all isolates with sufficient AST, 42% (16/38) were MDR.
+
+```{r save_Microbiology}
+
+write_xlsx(Microbiology, "~/UKL/Malawi ABS Projekt/R Malawi AMS/Microbiology_2026_09_22.xlsx")
+```
+
+#### Treatment
+
+```{r surgeries_bedsheets}
+
+Burns_Sepsis %>% 
+  select(bedsheets, Debridement, Split_skin_graft) %>% 
+  tbl_summary()
+```
+
+```{r surgeries}
+Burns_Sepsis %>%
+  select(Surg_Escharotomy, Surg_Debridement, Surg_Split_skin_graft,
+         Surg_Fascitotomy, Surg_Amputation, Surg_Other_surgery) %>% 
+  tbl_summary()
+```
+
+Upon admission to the unit, 53 (51%) study participants received fresh bedsheets. Surgical debridement was done in 18 (17%) cases, while 16 (15%) study participants received skin grafting.
+
+[All antibiotic treatment]{.underline}
+
+```{r antibiotics_all}
+#Antiinfecte treatments & combinations (total)
+CRF1_5_9.26 %>%
+  select(record_id, crf4_entry_date, crf4_antimicrobial_substance1, 
+         crf4_antimicrobial_substance2, crf4_antimicrobial_substance3) %>%
+  filter(!is.na(crf4_antimicrobial_substance1)) %>%
+  rowwise() %>%
+  mutate(substances = list(sort(na.omit(c(crf4_antimicrobial_substance1, 
+                                          crf4_antimicrobial_substance2, 
+                                          crf4_antimicrobial_substance3))))) %>%
+  ungroup() %>%
+  group_by(substances) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  arrange(desc(count)) %>% 
+  view()
+```
+
+[Empirical treatment]{.underline}
+
+The most commonly observed empirical antibiotic therapies were ceftriaxone (12; 43%) and ceftriaxone in combination with metronidazole (10; 36%).
+
+```{r antibiotics_empirical}
+#Empirical therapies
+# (CRF4: ABx; CRF4: Microbiological testing: "no")
+CRF1_5_9.26 %>%
+  filter(!is.na(crf4_antimicrobial_substance1) & crf4_microbial_test ==0) %>%
+  rowwise() %>%
+  mutate(substances = list(sort(na.omit(c(crf4_antimicrobial_substance1, 
+                                          crf4_antimicrobial_substance2, 
+                                          crf4_antimicrobial_substance3))))) %>%
+  ungroup() %>%
+  group_by(substances) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  arrange(desc(count)) %>%
+  view()
+```
+
+[Treatment after microbial testing]{.underline}
+
+```{r antibiotics_targeted}
+#(CRF4: ABx; CRF4: Mibi: "yes")
+
+CRF1_5_9.26 %>%
+  filter(!is.na(crf4_antimicrobial_substance1) & crf4_microbial_test ==1) %>%
+  rowwise() %>%
+  mutate(substances = list(sort(na.omit(c(crf4_antimicrobial_substance1, 
+                                          crf4_antimicrobial_substance2, 
+                                          crf4_antimicrobial_substance3))))) %>%
+  ungroup() %>%
+  group_by(substances) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  arrange(desc(count)) %>%
+  view()
+```
+
+## Determinants of wound infection, sepsis & death
+
+```{r age}
+
+t.test(age_years ~ Death_corr, data = CRF_stat, na.action = na.omit) 
+```
+
+There was no significant difference in outcomes between male and female participants. However, age showed an inverse relationship with mortality: children who died were younger on average than those who survived (2·8 vs. 4·0 years).
+
+```{r admission_time}
+
+t.test(Burns_Sepsis$Death_corr, Burns_Sepsis$time_to_admission)
+```
+
+In fact, deceased participants were admitted significantly earlier on average than survivors (mean 0·2 vs. 9 days; t-test: p = 0.006).
+
+### **Univariate log regression  & forrest plots**
+
+```{r exposures}
+# exposures included in forrest plots
+
+
+exposures <- c("sex", "age2", "residence", "underweight_combined", 
+               "TBSA2", "type3", "degree", "Time_to_admission",
+               "Topical2", "Cleaning_Water", 
+               "duration3", "MDR", "bedsheets")
+
+```
+
+**Univariate log regression wound infection**
+
+```{r FP_WI_table}
+
+# Creating DF for forrest plot Wound infection
+
+# descriptive table
+FP_table_WI <- Burns_Sepsis %>%
+  select(all_of(exposures), wound_infection_any) %>%
+  pivot_longer(cols = all_of(exposures), names_to = "variable", values_to = "category") %>%
+  mutate(variable = factor(variable, levels = exposures)) %>%   #keeping order defined in "exposures"
+  group_by(variable, category) %>%
+  summarise(
+    n = n(),
+    wound_infection = sum(wound_infection_any == 1, na.rm = TRUE),
+    wound_infection_pct = round(100 * wound_infection / n, 1),
+    .groups = "drop"
+  ) %>% 
+  arrange(variable) #keeping order of variables as given in exposures
+
+print(FP_table_WI, n = 100)
+
+write_xlsx(FP_table_WI, "~/UKL/Malawi ABS Projekt/R Malawi AMS/discriptive_WI.xlsx")
+
+# OR results table
+results_WI <- exposures %>%
+  set_names() %>%
+  map_df(~ glm(as.formula(paste("wound_infection_any ~", .x)), data = Burns_Sepsis,
+               family = binomial("logit")) %>% 
+           tidy(exponentiate = TRUE, conf.int = TRUE), .id = "exposure") %>%
+  filter(term != "(Intercept)")
+
+# Keeping order ... 
+results_WI <- results_WI %>%
+  mutate(
+    term = factor(term, levels = unique(results_sepsis$term)),   
+    exposures = factor(exposure, levels = exposures))
+
+print(results_WI, n = 100)
+
+results_WI <- results_WI %>% 
+  select(term, estimate, conf.low, conf.high)
+
+# Saving data
+write_xlsx(results_WI, "~/UKL/Malawi ABS Projekt/R Malawi AMS/results_WI.xlsx")
+
+# ordering manually in excel
+
+# reading df
+fp_WI_data <- read_excel("~/UKL/Malawi ABS Projekt/R Malawi AMS/Forrest_plot_data_wi.xlsx")
+
+OR_CI_wi <- ifelse(
+  fp_WI_data$estimate == 1.0,
+  "1.0 (Ref)",
+  sprintf("%.1f (%.1f–%.1f)", fp_WI_data$estimate, fp_WI_data$conf.low, fp_WI_data$conf.high)
+)
+
+FP_WI_df <- data.frame(
+  Variable = c("Characteristic", fp_WI_data$category),
+  N = c("N", fp_WI_data$n),
+  Wound_infection = c("Wound Infection", fp_WI_data$wound_infection),
+  Wound_infection_percent = c("%", fp_WI_data$wound_infection_pct),
+  OR_CI = c("OR (95% CI)", OR_CI_wi),
+  stringsAsFactors = FALSE
+)
+
+mean_wi <- c(NA, fp_WI_data$estimate)
+lower_wi <- c(NA, fp_WI_data$conf.low)
+upper_wi <- c(NA, fp_WI_data$conf.high)
+
+table_text_wi <- as.matrix(FP_WI_df)
+```
+
+**Wound infection - Forrest plot**
+
+```{r Figure2_FP_WI_plot}
+
+# Plotting
+forestplot(
+  labeltext = table_text_wi,
+  mean = mean_wi,
+  lower = lower_wi,
+  upper = upper_wi,  
+  is.summary = c(TRUE, rep(FALSE, nrow(table_text_wi) -1)),
+  zero = 1,
+  xlog = TRUE,
+  xlim = c(0.01, 50),
+  xticks = c(0.01, 0.1, 0.5, 1, 2, 5, 10, 20, 50),  
+  colgap = unit(3, "mm"),
+  col = fpColors(box = "black", lines = "gray", zero = "black"),
+  boxsize = 0.2,
+  txt_gp = fpTxtGp(
+    summary = gpar(cex = 1),
+    label = gpar(cex = 0.8),
+    ticks = gpar(cex = 0.8)
+  ),
+  lineheight = unit(0.5, "cm"),
+  line.margin = 0.1,
+  graph.pos = 5
+)
+```
+
+**Univariate log regression sepsis - Table**
+
+```{r FP_sepsis_table}
+
+# Creating DF for forrest plot Sepsis
+
+Burns_Sepsis_corr <- Burns_Sepsis %>% 
+  filter(!is.na(crf5_sepsis_corr)) #filtering sepsis status != NA
+  
+# descriptive table
+FP_table_sepsis <- Burns_Sepsis_corr %>%
+  select(all_of(exposures), crf5_sepsis_corr) %>%
+  pivot_longer(cols = all_of(exposures), names_to = "variable", values_to = "category") %>%
+  mutate(variable = factor(variable, levels = exposures)) %>%   #keeping order defined in "exposures"
+  group_by(variable, category) %>%
+  summarise(
+    n = n(),
+    sepsis = sum(crf5_sepsis_corr == 1, na.rm = TRUE),
+    sepsis_pct = round(100 * sepsis / n, 1),
+    .groups = "drop"
+  ) %>% 
+  arrange(variable) #keeping order of variables as given in exposures
+
+print(FP_table_sepsis, n = 100)
+
+write_xlsx(FP_table_sepsis, "~/UKL/Malawi ABS Projekt/R Malawi AMS/discriptive_sepsis_corr.xlsx")
+
+# OR results table
+results_sepsis <- exposures %>%
+  set_names() %>%
+  map_df(~ glm(as.formula(paste("crf5_sepsis_corr ~", .x)), data = Burns_Sepsis_corr, 
+               family = binomial("logit")) %>% 
+           tidy(exponentiate = TRUE, conf.int = TRUE), .id = "exposure") %>%
+  filter(term != "(Intercept)")
+
+# Keeping order ... 
+results_sepsis <- results_sepsis %>%
+  mutate(
+    term = factor(term, levels = unique(results_sepsis$term)),   
+    exposures = factor(exposure, levels = exposures))
+
+print(results_sepsis, n = 100)
+
+results_sepsis <- results_sepsis %>% 
+  select(term, estimate, conf.low, conf.high)
+
+# Saving data
+write_xlsx(results_sepsis, "~/UKL/Malawi ABS Projekt/R Malawi AMS/results_sepsis_corr.xlsx")
+
+# ordering manually in excel ...
+
+# reading df
+fp_sepsis_data <- read_excel("~/UKL/Malawi ABS Projekt/R Malawi AMS/Forrest_plot_data_s_corr.xlsx")
+
+#CAVE OR_CI_d (D should be s?)
+OR_CI_d <- ifelse(
+  fp_sepsis_data$estimate == 1.0,
+  "1.0 (Ref)",
+  sprintf("%.1f (%.1f–%.1f)", fp_sepsis_data$estimate, fp_sepsis_data$conf.low, fp_sepsis_data$conf.high)
+)
+
+FP_sepsis_df <- data.frame(
+  Variable = c("Characteristic", fp_sepsis_data$category),
+  N = c("N", fp_sepsis_data$n),
+  Sepsis = c("Sepsis", fp_sepsis_data$sepsis),
+  SepsisPercent = c("%", fp_sepsis_data$sepsis_pct),
+  OR_CI = c("OR (95% CI)", OR_CI_d),
+  stringsAsFactors = FALSE
+)
+
+mean_s <- c(NA, fp_sepsis_data$estimate)
+lower_s <- c(NA, fp_sepsis_data$conf.low)
+upper_s <- c(NA, fp_sepsis_data$conf.high)
+
+table_text_s <- as.matrix(FP_sepsis_df)
+```
+
+**Forrest plot sepsis**
+
+```{r FP_sepsis_plot}
+
+#Plotting
+forestplot(
+  labeltext = table_text_s,
+  mean = mean_s,
+  lower = lower_s,
+  upper = upper_s,  
+  is.summary = c(TRUE, rep(FALSE, nrow(table_text_s) -1)),
+  zero = 1,
+  xlog = TRUE,
+  xlim = c(0.01, 50),
+  # xticks = c(0.01, 0.1, 0.5, 1, 2, 5, 10, 20, 50),  
+  xticks = c(0.1, 0.5, 1, 2, 5, 10, 20, 50),  
+  colgap = unit(3, "mm"),
+  col = fpColors(box = "black", lines = "gray", zero = "black"),
+  boxsize = 0.2,
+  txt_gp = fpTxtGp(
+    summary = gpar(cex = 1),
+    label = gpar(cex = 0.8),
+    ticks = gpar(cex = 0.8)
+  ),
+  lineheight = unit(0.5, "cm"),
+  line.margin = 0.1,
+  graph.pos = 5
+)
+```
+
+**Univariate log regression death**
+
+```{r FP_death_table}
+# Creating df for forrest plot - death
+
+# Selecting variables for FP
+
+
+# Descriptive table
+FP_table_1 <- Burns_Sepsis %>%
+  select(all_of(exposures), Death_corr) %>%
+  pivot_longer(cols = all_of(exposures), names_to = "variable", values_to = "category") %>%
+  mutate(variable = factor(variable, levels = exposures)) %>%   #keeping order defined in "exposures"
+  group_by(variable, category) %>%
+  summarise(
+    n = n(),
+    deaths = sum(Death_corr == 1, na.rm = TRUE),
+    death_pct = round(100 * deaths / n, 1),
+    .groups = "drop"
+  ) %>% 
+  arrange(variable) #keeping order of variabls as given in exposures
+
+print(FP_table_1, n = 100)
+
+#Saving as Excel file
+write_xlsx(FP_table_1, "~/UKL/Malawi ABS Projekt/R Malawi AMS/discriptive_death.xlsx")
+
+# OR results table
+results <- exposures %>%
+  set_names() %>%
+  map_df(~ glm(as.formula(paste("Death_corr ~", .x)), data = Burns_Sepsis, 
+               family = binomial("logit")) %>% 
+           tidy(exponentiate = TRUE, conf.int = TRUE), .id = "exposure") %>%
+  filter(term != "(Intercept)")
+
+# keeping order ... 
+results <- results %>%
+  mutate(
+    term = factor(term, levels = unique(results$term)),   
+    exposures = factor(exposure, levels = exposures))
+
+print(results, n = 100)
+
+results_death <- results %>% 
+  select(term, estimate, conf.low, conf.high)
+
+#Saving as Excel file
+write_xlsx(results_death, "~/UKL/Malawi ABS Projekt/R Malawi AMS/results_death.xlsx")
+
+
+# combined and cleaned tables manually in Excel
+
+# Creating Final DF for Forrest plot
+fp_death_data <- read_excel("~/UKL/Malawi ABS Projekt/R Malawi AMS/Forrest_plot_data_d.xlsx")
+
+OR_CI_d <- ifelse(
+  fp_death_data$estimate == 1.0,
+  "1.0 (Ref)",
+  sprintf("%.1f (%.1f–%.1f)", fp_death_data$estimate, fp_death_data$conf.low, fp_death_data$conf.high)
+)
+
+FP_death_data <- data.frame(
+  Variable = c("Characteristic", fp_death_data$category),
+  N = c("N", fp_death_data$n),
+  Deaths = c("Deaths", fp_death_data$deaths),
+  DeathPercent = c("%", fp_death_data$death_pct),
+  OR_CI = c("OR (95% CI)", OR_CI_d),
+  stringsAsFactors = FALSE
+)
+
+mean <- c(NA, fp_death_data$estimate)
+lower <- c(NA, fp_death_data$conf.low)
+upper <- c(NA, fp_death_data$conf.high)
+
+table_text_d <- as.matrix(FP_death_data)
+```
+
+**Forrest plot death**
+
+```{r FP_death_plot}
+
+# Forrest plot death
+forestplot(
+  labeltext = table_text_d,
+  mean = mean,
+  lower = lower,
+  upper = upper,
+  is.summary = c(TRUE, rep(FALSE, nrow(table_text_d) -1)),
+  zero = 1,
+  xlog = TRUE,
+  xlim = c(0.1, 50),
+  xticks = c(0.1, 0.5, 1, 2, 5, 10, 20, 50),  
+  colgap = unit(3, "mm"),
+  col = fpColors(box = "black", lines = "gray", zero = "black"),
+  boxsize = 0.2,
+  txt_gp = fpTxtGp(
+    summary = gpar(cex = 1),
+    label = gpar(cex = 0.8),
+    ticks = gpar(cex = 0.8)
+    ),
+  lineheight = unit(0.5, "cm"),
+  line.margin = 0.1,
+  graph.pos = 5
+)
+```
+
+### **Multivariable logistic regression analysis (controlling for TBSA)**
+
+**Death - multivariable logistic regression analysis (controlling for TBSA)**
+
+```{r MV_Regression_Death}
+results_death_TBSA <- exposures %>%
+  set_names() %>%
+  map_df(~ glm(as.formula(paste("Death_corr~TBSA3+", .x)), data = Burns_Sepsis, 
+               family = binomial("logit")) %>% 
+           tidy(exponentiate = TRUE, conf.int = TRUE), .id = "exposure") %>%
+  filter(term != "(Intercept)")
+
+#filtering out TBSA rows
+results_death_TBSA <- results_death_TBSA %>%
+  filter(!str_detect(term, "TBSA"))
+
+view(results_death_TBSA)
+```
+
+**Sepsis - multivariable log regression (controlling for TBSA)**
+
+```{r MV_regression_sepsis}
+
+results_sepsis_TBSA <- exposures %>%
+  set_names() %>%
+  map_df(~ glm(as.formula(paste("crf5_sepsis_corr~TBSA3+", .x)), 
+               data = Burns_Sepsis, 
+               family = binomial("logit")) %>% 
+           tidy(exponentiate = TRUE, conf.int = TRUE), .id = "exposure") %>%
+  filter(term != "(Intercept)")
+
+#filtering out TBSA rows 
+results_sepsis_TBSA <- results_sepsis_TBSA %>%
+  filter(!str_detect(term, "TBSA"))
+
+view(results_sepsis_TBSA)
+```
+
+**Wound infection - multivariable log regression (controlling for TBSA)**
+
+```{r MV_regression_WI}
+
+results_WI_TBSA <- exposures %>%
+  set_names() %>%
+  map_df(~ glm(as.formula(paste("wound_infection_any~TBSA3+", .x)), 
+               data = Burns_Sepsis, 
+               family = binomial("logit")) %>% 
+           tidy(exponentiate = TRUE, conf.int = TRUE), .id = "exposure") %>%
+  filter(term != "(Intercept)")
+
+#filtering out TBSA rows 
+results_WI_TBSA <- results_WI_TBSA %>%
+  filter(!str_detect(term, "TBSA"))
+
+view(results_WI_TBSA)
+```
